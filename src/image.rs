@@ -218,7 +218,7 @@ pub trait ImageDecoder: Sized {
 
 
 /// Immutable pixel iterator
-pub struct Pixels<'a, I: 'a> {
+pub struct Pixels<'a, I: ?Sized + 'a> {
     image:  &'a I,
     x:      u32,
     y:      u32,
@@ -251,7 +251,7 @@ impl<'a, I: GenericImage> Iterator for Pixels<'a, I> {
 /// Mutable pixel iterator
 ///
 /// DEPRECATED: It is currently not possible to create a safe iterator for this in Rust. You have to use an iterator over the image buffer instead.
-pub struct MutPixels<'a, I: 'a> {
+pub struct MutPixels<'a, I: ?Sized + 'a> {
     image:  &'a mut I,
     x:      u32,
     y:      u32,
@@ -292,7 +292,7 @@ impl<'a, I: GenericImage + 'a> Iterator for MutPixels<'a, I>
 }
 
 /// A trait for manipulating images.
-pub trait GenericImage: Sized {
+pub trait GenericImage {
     /// The type of pixel.
     type Pixel: Pixel;
 
@@ -365,7 +365,7 @@ pub trait GenericImage: Sized {
     /// Returns an Iterator over the pixels of this image.
     /// The iterator yields the coordinates of each pixel
     /// along with their value
-    fn pixels(&self) -> Pixels<Self> {
+    fn pixels(&self) -> Pixels<Self> where Self: Sized{
         let (width, height) = self.dimensions();
 
         Pixels {
@@ -382,7 +382,7 @@ pub trait GenericImage: Sized {
     /// along with a mutable reference to them.
     ///
     /// DEPRECATED: This cannot be implemented safely in Rust. Please use the image buffer directly.
-    fn pixels_mut(&mut self) -> MutPixels<Self> {
+    fn pixels_mut(&mut self) -> MutPixels<Self> where Self: Sized {
         let (width, height) = self.dimensions();
 
         MutPixels {
@@ -405,7 +405,7 @@ pub trait GenericImage: Sized {
     /// `true` if the copy was successful, `false` if the image could not
     /// be copied due to size constraints.
     fn copy_from<O>(&mut self, other: &O, x: u32, y:u32) -> bool
-    where O: GenericImage<Pixel=Self::Pixel> {
+    where O: GenericImage<Pixel=Self::Pixel>, Self: Sized {
         // Do bounds checking here so we can use the non-bounds-checking
         // functions to copy pixels.
         if self.width() < other.width() + x || self.height() < other.height() + y {
@@ -426,14 +426,14 @@ pub trait GenericImage: Sized {
     /// Returns a subimage that is a view into this image.
     fn sub_image(&mut self, x: u32, y: u32, width: u32, height: u32)
     -> SubImage<Self>
-    where Self: 'static, <Self::Pixel as Pixel>::Subpixel: 'static,
+    where Self: Sized + 'static, <Self::Pixel as Pixel>::Subpixel: 'static,
     Self::Pixel: 'static {
         SubImage::new(self, x, y, width, height)
     }
 }
 
 /// A View into another image
-pub struct SubImage <'a, I: 'a> {
+pub struct SubImage <'a, I: ?Sized + 'a> {
     image:   &'a mut I,
     xoffset: u32,
     yoffset: u32,
@@ -442,7 +442,7 @@ pub struct SubImage <'a, I: 'a> {
 }
 
 // TODO: Do we really need the 'static bound on `I`? Can we avoid it?
-impl<'a, I: GenericImage + 'static> SubImage<'a, I>
+impl<'a, I: ?Sized + GenericImage + 'static> SubImage<'a, I>
     where I::Pixel: 'static,
           <I::Pixel as Pixel>::Subpixel: 'static {
 
@@ -487,7 +487,7 @@ impl<'a, I: GenericImage + 'static> SubImage<'a, I>
 
 #[allow(deprecated)]
 // TODO: Is the 'static bound on `I` really required? Can we avoid it?
-impl<'a, I: GenericImage + 'static> GenericImage for SubImage<'a, I>
+impl<'a, I: ?Sized + GenericImage + 'static> GenericImage for SubImage<'a, I>
     where I::Pixel: 'static,
           <I::Pixel as Pixel>::Subpixel: 'static {
 
@@ -525,6 +525,15 @@ mod tests {
     use super::GenericImage;
     use buffer::ImageBuffer;
     use color::{Rgba};
+
+
+    #[test]
+    fn test_image_trait_object() {
+        type Boxed = Box<GenericImage<Pixel=Rgba<u8>>>;
+        let black = Rgba::<u8> {data: [0, 0, 0, 0]};
+        let boxed :  Boxed = Box::new(ImageBuffer::from_fn(100, 100, |_, _| black));
+        assert_eq!(boxed.get_pixel(1, 1), black);
+    }
 
     #[test]
     /// Test that alpha blending works as expected
